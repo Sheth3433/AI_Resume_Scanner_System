@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from sentence_transformers import SentenceTransformer
-
 from app.config import MODEL_NAME
 
 _MODEL = None
@@ -10,6 +8,8 @@ _MODEL = None
 def get_embedding_model():
     global _MODEL
     if _MODEL is None:
+        from sentence_transformers import SentenceTransformer
+
         _MODEL = SentenceTransformer(MODEL_NAME)
     return _MODEL
 

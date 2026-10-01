@@ -31,9 +31,22 @@ def compute_similarity(resume_text: str, job_text: str) -> float:
     job_vector = vectorize(job_text)
     resume_dict = dict(resume_vector)
     job_dict = dict(job_vector)
-    common_tokens = set(resume_dict) & set(job_dict)
-    if not common_tokens:
+    vocabulary = sorted(set(resume_dict) | set(job_dict))
+    if not vocabulary:
         return 0.0
-    vec_a = [resume_dict.get(token, 0) for token in sorted(common_tokens)]
-    vec_b = [job_dict.get(token, 0) for token in sorted(common_tokens)]
+    vec_a = [resume_dict.get(token, 0) for token in vocabulary]
+    vec_b = [job_dict.get(token, 0) for token in vocabulary]
     return round(max(0.0, min(1.0, cosine_similarity(vec_a, vec_b))), 4)
+
+
+def compute_semantic_similarity(resume_text: str, job_text: str) -> tuple[float, str]:
+    if not resume_text or not job_text:
+        return 0.0, "not_available"
+    try:
+        from app.services.embedding_service import embed_texts
+
+        embeddings = embed_texts([resume_text, job_text])
+        score = float(embeddings[0] @ embeddings[1])
+        return round(max(0.0, min(1.0, score)), 4), "sentence-transformers"
+    except Exception:
+        return compute_similarity(resume_text, job_text), "token-overlap fallback"

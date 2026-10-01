@@ -9,6 +9,8 @@ __pycache__/
 venv/
 .env
 .env.*
+!.env.example
+!**/.env.example
 
 # Node / frontend
 frontend/node_modules/
@@ -20,6 +22,7 @@ frontend/.vite/
 uploads/
 tmp/
 *.sqlite3
+*.db
 
 # OS
 .DS_Store

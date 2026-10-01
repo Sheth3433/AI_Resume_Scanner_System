@@ -3,15 +3,22 @@
 }
 
 :root {
-  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: 'Aptos', 'Segoe UI', sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  color: #e2e8f0;
-  background: #020817;
+  color: #171717;
+  background: #f8f8f6;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  --ink: #171717;
+  --muted: #73736e;
+  --paper: #ffffff;
+  --line: #e5e5e0;
+  --success: #4d7c5a;
+  --warning: #a67c32;
+  --danger: #a84a4a;
 }
 
 html {
@@ -20,11 +27,9 @@ html {
 
 body {
   margin: 0;
-  min-width: 320px;
+  min-width: 0;
   min-height: 100vh;
-  background:
-    radial-gradient(circle at top, rgba(59, 130, 246, 0.22), transparent 30%),
-    linear-gradient(180deg, #020817 0%, #0f172a 100%);
+  background-color: #f8f8f6;
 }
 
 #root {
