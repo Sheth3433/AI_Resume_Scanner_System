@@ -20,15 +20,13 @@ def recommend_roles(resume_skills: list[str]) -> list[dict[str, object]]:
         matched = sorted(present & role_skills)
         if len(matched) < 2:
             continue
-        score = round(len(matched) / len(role_skills) * 100)
-        if score < 20:
-            continue
         missing = sorted(role_skills - present)
         recommendations.append({
             "role": role,
-            "match_score": score,
+            "_rank": len(matched) / len(role_skills),
             "matched_skills": matched,
             "missing_skills": missing[:5],
-            "reason": f"{len(matched)} of {len(role_skills)} role-related skills were detected: {', '.join(matched)}.",
+            "reason": f"Role-related skills detected in your resume: {', '.join(matched)}.",
         })
-    return sorted(recommendations, key=lambda item: (-int(item["match_score"]), str(item["role"])))[:5]
+    ranked = sorted(recommendations, key=lambda item: (-float(item["_rank"]), str(item["role"])))[:5]
+    return [{key: value for key, value in item.items() if key != "_rank"} for item in ranked]

@@ -41,6 +41,8 @@ function App() {
   const [isAuthenticating, setIsAuthenticating] = useState(false)
   const [resumeFile, setResumeFile] = useState(null)
   const [jobDescription, setJobDescription] = useState('')
+  const [targetRole, setTargetRole] = useState('')
+  const [availableRoles, setAvailableRoles] = useState([])
   const [error, setError] = useState('')
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [stageIndex, setStageIndex] = useState(0)
@@ -72,10 +74,10 @@ function App() {
 
   const scoreCards = useMemo(
     () => result ? [
-      { label: 'Job compatibility', value: result.scores.compatibility, note: result.job.skills?.length ? 'Weighted match to detected job skills' : 'Resume completeness heuristic; no job description' },
-      { label: 'Estimated ATS', value: result.scores.ats_compatibility, note: 'Document structure and content checks' },
+      { label: 'Job compatibility', value: result.scores.compatibility, note: result.job.skills?.length || result.role_analysis ? 'Weighted match to the selected job target' : 'Resume completeness heuristic; no job target' },
+      { label: result.ats_analysis?.label || 'Estimated ATS', value: result.scores.ats_compatibility, note: result.ats_analysis?.score_basis === 'job_targeted' ? '60% semantic + 40% exact skill coverage' : 'Document structure and content checks' },
       { label: 'Semantic match', value: result.scores.semantic_match, note: result.semantic_match_source === 'sentence-transformers' ? 'Sentence-transformer similarity' : result.semantic_match_source },
-      { label: 'Skill match', value: result.scores.skill_match, note: result.job.skills?.length ? 'Required skills weighted above preferred' : 'Add a job description to calculate' },
+      { label: 'Skill match', value: result.scores.skill_match, note: result.job.skills?.length ? 'Required skills weighted above preferred' : result.role_analysis ? 'Alternative skill groups covered' : result.ats_analysis?.score_basis === 'job_targeted' ? 'No known skill terms; exact-skill factor is neutral' : 'Add a job target to calculate' },
       { label: 'Keyword overlap', value: result.scores.keyword_match, note: 'Token-count cosine similarity' },
     ] : [],
     [result],
@@ -145,6 +147,16 @@ function App() {
       }
     }
     void fetchSettings()
+    const fetchRoles = async () => {
+      try {
+        const response = await authenticatedFetch('/roles')
+        const payload = await response.json().catch(() => [])
+        if (response.ok && isActive) setAvailableRoles(payload)
+      } catch {
+        if (isActive) setAvailableRoles([])
+      }
+    }
+    void fetchRoles()
     return () => { isActive = false }
   }, [authToken])
 
@@ -274,6 +286,7 @@ function App() {
     const formData = new FormData()
     formData.append('file', resumeFile)
     formData.append('job_description', jobDescription)
+    if (targetRole) formData.append('target_role', targetRole)
 
     try {
       const response = await authenticatedFetch('/resume/analyze', {
@@ -448,6 +461,13 @@ function App() {
             placeholder="Paste a job description to see detected skill overlap and gaps."
           />
 
+          <label className="field-label role-field-label" htmlFor="target-role">Target IT role <span>Optional</span></label>
+          <select id="target-role" value={targetRole} onChange={(event) => setTargetRole(event.target.value)}>
+            <option value="">Use job description only</option>
+            {availableRoles.map((role) => <option value={role.role} key={role.role}>{role.role}</option>)}
+          </select>
+          {targetRole ? <p className="role-selection-note">The role profile groups equivalent skills. You only need evidence for one option in each group; suggested stacks are not all required.</p> : null}
+
           <div className="actions">
             <button className="primary" type="button" onClick={handleAnalyze} disabled={isAnalyzing || !resumeFile}>
               {isAnalyzing ? 'Analyzing…' : 'Analyze resume'}
@@ -506,21 +526,34 @@ function App() {
         <div className="analysis-grid">
           <div className="panel analysis-panel">
             <p className="eyebrow">Job comparison</p><h2>Matched skills</h2>
-            {result.matched_skills.length ? <div className="tag-list">{result.matched_skills.map((skill) => <span key={skill} className="tag success">{skill}</span>)}</div> : <p className="muted">{result.job.skills?.length ? 'No shared skills detected from this job description.' : 'Add a job description to compare skills.'}</p>}
+            {result.matched_skills.length ? <div className="tag-list">{result.matched_skills.map((skill) => <span key={skill} className="tag success">{skill}</span>)}</div> : <p className="muted">{result.job.skills?.length ? 'No shared skills detected from this job description.' : result.role_analysis ? 'No target-role skills were detected in the resume.' : result.job.description?.trim() ? 'No job skills from the current taxonomy were detected.' : 'Add a job description or select a target role.'}</p>}
             {result.matched_skill_details?.length ? <div className="skill-evidence-list">{result.matched_skill_details.map((item) => <div key={item.skill}><strong>{item.skill} · {item.source_section.replaceAll('_', ' ')}</strong><p>{item.evidence}</p></div>)}</div> : null}
             {result.job.skills?.length ? <p className="muted skill-method-note">Required skills weigh more than preferred or unqualified mentions.</p> : null}
           </div>
 
           <div className="panel analysis-panel">
             <p className="eyebrow">Skill gaps</p><h2>Not detected in resume</h2>
-            {result.missing_skill_details?.length ? <div className="tag-list">{result.missing_skill_details.map((item) => <span key={item.skill} className="tag warning">{item.skill}<small>{item.importance}</small></span>)}</div> : result.missing_skills.length ? <div className="tag-list">{result.missing_skills.map((skill) => <span key={skill} className="tag warning">{skill}</span>)}</div> : <p className="muted">{jobDescription.trim() ? 'No missing job skills were detected.' : 'Add a job description to assess skill gaps.'}</p>}
+            {result.missing_skill_details?.length ? <div className="tag-list">{result.missing_skill_details.map((item) => <span key={item.skill} className="tag warning">{item.skill}<small>{item.importance}</small></span>)}</div> : result.missing_skills.length ? <div className="tag-list">{result.missing_skills.map((skill) => <span key={skill} className="tag warning">{skill}</span>)}</div> : result.role_analysis?.unmet_groups.length ? <div className="role-gap-list">{result.role_analysis.unmet_groups.map((group) => <div key={group.group}><strong>{group.group}</strong><p>Choose one supported option: {group.skills.join(', ')}</p></div>)}</div> : <p className="muted">{result.job.description?.trim() ? result.job.skills?.length ? 'No missing job skills were detected.' : 'No known IT taxonomy terms were detected in this job description.' : result.role_analysis ? 'All role skill groups have at least one detected match.' : 'Add a job description or select a target role.'}</p>}
             {result.missing_skill_details?.length ? <p className="muted skill-method-note">“Not detected” means no matching evidence was found; it does not prove you lack the skill.</p> : null}
+            {result.role_analysis?.unmet_groups.length ? <p className="muted skill-method-note">These are alternatives within each group, not a request to claim or learn every listed skill.</p> : null}
           </div>
 
+          {result.role_analysis ? <div className="panel analysis-panel role-fit-panel">
+            <p className="eyebrow">Selected role · {result.role_analysis.role}</p><h2>Role requirements and project evidence</h2>
+            <div className="role-fit-summary"><strong>{result.role_analysis.required_groups_met ?? result.role_analysis.skill_groups.filter((group) => group.status === 'met').length}/{result.role_analysis.total_required_groups ?? result.role_analysis.skill_groups.length}</strong><span>skill groups have evidence</span><small>{(result.role_analysis.project_count ?? result.resume.projects?.length ?? 0) ? `${result.role_analysis.related_project_count ?? result.role_analysis.related_projects?.length ?? 0} of ${result.role_analysis.project_count ?? result.resume.projects.length} project lines relate to this role.` : 'No project section detected.'}</small></div>
+            <div className="role-groups">{result.role_analysis.skill_groups.map((group) => <article className="role-group" key={group.group}>
+              <div><strong>{group.group}</strong><span className={group.status === 'met' ? 'group-met' : 'group-gap'}>{group.status === 'met' ? 'Evidence found' : 'Not detected'}</span></div>
+              <p>Any one: {group.skills.join(', ')}</p>
+              {group.matched_skills.length ? <small>Matched: {group.matched_skills.join(', ')} · {group.evidence.join(' / ')}</small> : null}
+            </article>)}</div>
+            {result.role_analysis.related_projects.length ? <div className="role-project-evidence"><strong>Relevant project evidence</strong>{result.role_analysis.related_projects.map((project) => <p key={project.evidence}>{project.evidence}<small>Matched: {project.matched_skills.join(', ')}</small></p>)}</div> : <p className="muted skill-method-note">No project line matching this role profile was detected. Add a real relevant project if you have one.</p>}
+            {result.role_analysis.optional_alternatives.length ? <div className="role-optional"><strong>Optional skill alternatives</strong>{result.role_analysis.optional_alternatives.map((alternative) => <p key={alternative.label}>{alternative.label}: {alternative.skills.join(', ')}</p>)}</div> : null}
+          </div> : null}
+
           <div className="panel analysis-panel">
-            <p className="eyebrow">Resume evidence</p><h2>Detected skills</h2>
+            <p className="eyebrow">Resume skills</p><h2>Detected skills</h2>
             {result.resume.skill_details?.length ? <div className="skill-inventory">{result.resume.skill_details.map((item) => <article className="skill-inventory-item" key={item.skill}>
-              <div><strong>{item.skill}</strong><span>{Math.round(item.confidence * 100)}% confidence</span></div>
+              <div><strong>{item.skill}</strong></div>
               <small>{item.category} · {item.source_section.replaceAll('_', ' ')}</small>
               <p>{item.evidence}</p>
             </article>)}</div> : <p className="muted">No skills from the current taxonomy were detected.</p>}
@@ -546,16 +579,22 @@ function App() {
           </div>
 
           <div className="panel analysis-panel">
-            <p className="eyebrow">Based on detected skills</p><h2>Role suggestions</h2>
+            <p className="eyebrow">Based on detected skills · suggestions, not scores</p><h2>Role suggestions</h2>
             {result.role_recommendations?.length ? <div className="role-list">{result.role_recommendations.map((role) => <article className="role-item" key={role.role}>
-              <div><strong>{role.role}</strong><span>{role.match_score}% overlap</span></div>
-              <p>{role.reason}</p>
-              {role.missing_skills.length ? <small>Other role skills not detected: {role.missing_skills.join(', ')}</small> : null}
+              <div><strong>{role.role}</strong></div>
+              <p>Role-related skills detected in your resume: {role.matched_skills.join(', ')}.</p>
+              {role.missing_skills.length ? <small>Other possible skills not detected (not all required): {role.missing_skills.join(', ')}</small> : null}
             </article>)}</div> : <p className="muted">Not enough detected skills to suggest roles. Add evidence for your actual skills in the resume.</p>}
           </div>
 
           <div className="panel analysis-panel">
-            <p className="eyebrow">Estimated ATS compatibility</p><h2>Why this score?</h2>
+            <p className="eyebrow">{result.ats_analysis?.label || 'Estimated ATS'}</p><h2>Why this score?</h2>
+            {result.ats_analysis?.score_basis === 'job_targeted' ? <div className="ats-formula-breakdown">
+              <p><span>Semantic similarity · 60%</span><strong>{result.ats_analysis.semantic_component}%</strong></p>
+              <p><span>Weighted exact skill coverage · 40%</span><strong>{result.ats_analysis.exact_skill_component}%</strong></p>
+              <p><span>Document readiness (separate checks)</span><strong>{result.ats_analysis.document_readiness_score}%</strong></p>
+              <small>{result.ats_analysis.formula}</small>
+            </div> : <p className="muted">{result.ats_analysis?.formula}</p>}
             <ul className="check-list">{result.ats_analysis?.checks.map((check) => <li key={check.name} className={`check-${check.status}`}><span aria-hidden="true">{check.status === 'pass' ? '✓' : check.status === 'warning' ? '!' : '–'}</span><div><strong>{check.name}</strong><p>{check.detail}</p></div></li>)}</ul>
             <p className="muted formatting-note">{result.ats_analysis?.formatting_assessment}</p>
             <p className="disclaimer">{result.ats_analysis?.disclaimer}</p>
@@ -631,8 +670,10 @@ function App() {
               <div><dt>Connection</dt><dd>{settings?.ai?.configured ? 'Configured' : 'Rule-based fallback active'}</dd></div>
               <div><dt>Model</dt><dd>{settings?.ai?.model || 'Not configured'}</dd></div>
               <div><dt>Semantic model</dt><dd>{settings?.semantic_model || 'Not available'}</dd></div>
+              <div><dt>Scanned PDF OCR</dt><dd>{settings?.ocr?.configured ? `Available · ${settings.ocr.language}` : 'Tesseract executable not found'}</dd></div>
             </dl>
             <p className="muted">Provider keys remain in the backend environment and are never returned here.</p>
+            {!settings?.ocr?.configured ? <p className="muted">Install Tesseract OCR and set TESSERACT_CMD if it is not on PATH. {settings?.ocr?.note}</p> : null}
           </section>
           <section className="settings-block" aria-labelledby="privacy-title">
             <p className="eyebrow">Data handling</p><h3 id="privacy-title">Privacy and retention</h3>

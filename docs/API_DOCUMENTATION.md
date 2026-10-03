@@ -19,7 +19,11 @@ All application routes other than health and authentication routes require `Auth
 
 `POST /api/resume/upload` accepts multipart `file`. Only PDF and DOCX are accepted. The endpoint validates the size and document signature, stores the document under a generated UUID filename in `UPLOAD_DIR`, and returns the original filename, byte count, and status. The stored file is not automatically removed.
 
-`POST /api/resume/analyze` accepts multipart `file` and optional `job_description`. It extracts text, analyzes the resume, saves the result record, and returns an `analysis_id` with resume/job details, scores, `match_breakdown`, `semantic_match_source`, `ats_analysis`, skills, issues, and recommendations. Analysis input files are temporary and deleted after parsing. The result JSON is persisted in SQLite.
+`POST /api/resume/analyze` accepts multipart `file`, optional `job_description`, and optional `target_role` (one of the role values listed by `GET /api/roles`). It extracts text, analyzes the resume, saves the result record, and returns an `analysis_id` with resume/job details, structured section records, role-fit groups/project evidence, scores, `match_breakdown`, `semantic_match_source`, `ats_analysis`, skills, issues, and recommendations. Analysis input files are temporary and deleted after parsing. The result JSON is persisted in SQLite.
+
+`GET /api/roles` returns the curated IT role-profile catalogue. Each role groups interchangeable technologies (for example, alternative backend languages) so all alternatives are not marked required at once.
+
+When a job description or target role is supplied, `scores.ats_compatibility` uses 60% semantic cosine similarity plus 40% weighted exact skill coverage. When both are provided, skill coverage combines 60% JD skill coverage and 40% role-group coverage; `skill_match_basis` reports those values. If the JD has no taxonomy matches, its formula-defined exact-skill component is neutral (100%) and the check says not assessed. `ats_analysis.document_readiness_score` is separate and covers text-level checks. If a PDF has no selectable text, the parser tries Tesseract OCR when the executable/language data are installed; otherwise it returns an explicit setup error.
 
 ## Job analysis and matching
 

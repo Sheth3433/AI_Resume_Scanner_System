@@ -5,10 +5,16 @@ from pydantic import BaseModel
 
 from app.services.job_matcher import compute_semantic_similarity, compute_similarity
 from app.services.skill_extractor import extract_skills
+from app.services.role_profiles import list_role_profiles
 from app.models.user import UserRecord
 from app.services.auth_service import get_current_user
 
 router = APIRouter(tags=["jobs"])
+
+
+@router.get("/roles")
+def get_supported_roles(current_user: UserRecord = Depends(get_current_user)):
+    return list_role_profiles()
 
 
 class JobPayload(BaseModel):

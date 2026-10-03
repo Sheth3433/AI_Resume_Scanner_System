@@ -2,6 +2,7 @@
   "name": "ai-resume-scanning-system",
   "private": true,
   "version": "1.0.0",
+  "type": "module",
   "scripts": {
     "dev": "concurrently --kill-others --names backend,frontend --prefix-colors green,cyan \"npm:backend\" \"npm:frontend\"",
     "backend": "node scripts/start-backend.js",

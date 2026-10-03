@@ -8,7 +8,7 @@ import zipfile
 import pymupdf
 from docx import Document
 
-from app.config import MAX_FILE_SIZE
+from app.config import MAX_FILE_SIZE, OCR_LANGUAGE, OCR_MAX_PAGES, TESSERACT_CMD
 from app.services.text_cleaner import clean_resume_text
 
 
@@ -23,6 +23,31 @@ def extract_docx_text(file_path: str | Path) -> str:
     doc = Document(str(file_path))
     paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
     return "\n".join(paragraphs)
+
+
+def extract_scanned_pdf_text(file_path: str | Path) -> str:
+    import pytesseract
+    from PIL import Image
+
+    if TESSERACT_CMD:
+        pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
+    try:
+        pytesseract.get_tesseract_version()
+    except pytesseract.TesseractNotFoundError as exc:
+        raise ValueError(
+            "This PDF appears to be scanned/image-only, but the Tesseract OCR executable was not found. "
+            "Install Tesseract OCR or set TESSERACT_CMD to its executable path."
+        ) from exc
+
+    pages_text = []
+    with pymupdf.open(str(file_path)) as document:
+        if document.needs_pass:
+            raise ValueError("This PDF is password-protected and cannot be analyzed.")
+        for page in document[:OCR_MAX_PAGES]:
+            pixmap = page.get_pixmap(matrix=pymupdf.Matrix(2, 2), alpha=False)
+            with Image.open(BytesIO(pixmap.tobytes("png"))) as image:
+                pages_text.append(pytesseract.image_to_string(image, lang=OCR_LANGUAGE, timeout=30))
+    return "\n".join(pages_text)
 
 
 def parse_resume_file(file_obj) -> str:
@@ -67,8 +92,10 @@ def parse_resume_content(filename: str, content: bytes) -> str:
             text = extract_docx_text(target_path)
 
         cleaned = clean_resume_text(text)
+        if not cleaned and suffix == ".pdf":
+            cleaned = clean_resume_text(extract_scanned_pdf_text(target_path))
         if not cleaned:
-            raise ValueError("Text could not be extracted from this document. Scanned/image-only PDFs require OCR, which is not enabled.")
+            raise ValueError("Text could not be extracted from this document. OCR did not recover readable text from the PDF.")
         return cleaned
     except ValueError:
         raise

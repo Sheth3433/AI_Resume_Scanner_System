@@ -4,12 +4,22 @@ import re
 def calculate_compatibility(similarity: float, details: dict) -> float:
     matched = len(details.get("matched_skills", []))
     missing = len(details.get("missing_skills", []))
-    score = similarity * 70 + min(matched * 8, 24) - min(missing * 4, 16)
-    score = max(0, min(100, round(score)))
-    return score
+    skill_total = matched + missing
+    skill_coverage = matched / skill_total if skill_total else 0.0
+    semantic_component = max(0.0, min(1.0, similarity))
+    return round((0.6 * semantic_component + 0.4 * skill_coverage) * 100, 2)
 
 
-def analyze_ats(text: str, sections: dict, contact: dict, job_skills: list[dict]) -> dict:
+def analyze_ats(
+    text: str,
+    sections: dict,
+    contact: dict,
+    job_skills: list[dict],
+    *,
+    semantic_similarity: float | None = None,
+    skill_match_ratio: float | None = None,
+    target_role: str | None = None,
+) -> dict:
     normalized_text = text.lower()
     email_found = bool(contact.get("email"))
     phone_found = bool(contact.get("phone"))
@@ -38,8 +48,8 @@ def analyze_ats(text: str, sections: dict, contact: dict, job_skills: list[dict]
         },
         {
             "name": "Job-specific skills",
-            "status": "not_assessed" if not job_skills else ("pass" if matched_skills else "warning"),
-            "detail": "Add a job description to assess job-specific skills." if not job_skills else f"Matched {len(matched_skills)} of {len(required_skills)} detected job skills.",
+            "status": "not_assessed" if not job_skills and not target_role else "pass" if target_role and skill_match_ratio == 1 else "warning" if target_role and skill_match_ratio is not None else ("pass" if matched_skills else "warning"),
+            "detail": "No skills from the current IT taxonomy were detected in this job description; its exact-skill component is neutral per the scoring rule." if not job_skills and not target_role and skill_match_ratio is not None else f"Role skill groups: {round((skill_match_ratio or 0) * 100)}% covered for {target_role}." if target_role and skill_match_ratio is not None else "Add a job description or select an IT role to assess job-specific skills." if not job_skills else f"Matched {len(matched_skills)} of {len(required_skills)} detected job skills.",
         },
         {
             "name": "Resume wording",
@@ -56,11 +66,20 @@ def analyze_ats(text: str, sections: dict, contact: dict, job_skills: list[dict]
     ]
     if job_skills:
         components.append((20, round(len(matched_skills) / len(required_skills) * 100) if required_skills else 0))
-    score = round(sum(weight * value for weight, value in components) / sum(weight for weight, _ in components))
+    document_readiness_score = round(sum(weight * value for weight, value in components) / sum(weight for weight, _ in components))
+    has_job_target = semantic_similarity is not None and skill_match_ratio is not None
+    semantic_component = max(0.0, min(1.0, semantic_similarity or 0.0))
+    exact_skill_component = max(0.0, min(1.0, skill_match_ratio or 0.0))
+    score = round((0.6 * semantic_component + 0.4 * exact_skill_component) * 100, 2) if has_job_target else document_readiness_score
     recommendations = [check["detail"] for check in checks if check["status"] == "warning"]
     return {
-        "label": "Estimated ATS Compatibility",
+        "label": "Estimated ATS Match" if has_job_target else "Estimated ATS Readiness",
         "score": score,
+        "document_readiness_score": document_readiness_score,
+        "score_basis": "job_targeted" if has_job_target else "document_readiness",
+        "formula": "60% semantic similarity + 40% weighted exact skill coverage" if has_job_target else "Document structure and content checks; no target job was supplied",
+        "semantic_component": round(semantic_component * 100, 2) if has_job_target else None,
+        "exact_skill_component": round(exact_skill_component * 100, 2) if has_job_target else None,
         "checks": checks,
         "recommendations": recommendations,
         "weak_phrases": weak_phrase_hits,

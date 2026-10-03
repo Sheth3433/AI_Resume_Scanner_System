@@ -9,6 +9,7 @@ def build_recommendation_details(
     matched_skills: list[str],
     missing_skills: list[str],
     weak_phrases: list[str],
+    role_analysis: dict | None = None,
 ) -> list[dict[str, str]]:
     recommendations = []
     resume_skills = {item["skill"]: item for item in resume_skill_details}
@@ -27,6 +28,18 @@ def build_recommendation_details(
             "evidence": job_skill.get("evidence", ""),
             "action": f"Do not add it unless it reflects your real experience. If you have used {skill_name}, list it under Skills and support it with a truthful project or experience bullet; otherwise, build a small project before claiming it.",
         })
+
+    if role_analysis:
+        for group in role_analysis["unmet_groups"]:
+            options = group["skills"]
+            recommendations.append({
+                "type": "role_skill_gap",
+                "title": f"Add evidence for {group['group'].lower()} in your {role_analysis['role']} resume",
+                "priority": "high",
+                "skill": ", ".join(options[:4]),
+                "evidence": f"No matching skill from this role group was detected: {', '.join(options)}.",
+                "action": f"This role profile expects at least one of: {', '.join(options)}. If you have used one, add it to Skills and show it in a relevant project/experience bullet. These are alternatives, not a requirement to learn or claim every item.",
+            })
 
     for skill_name in matched_skills:
         resume_skill = resume_skills.get(skill_name, {})

@@ -84,9 +84,29 @@ def generate_analysis_report(analysis: dict, filename: str = "Resume analysis") 
     ] or analysis.get("recommendations", [])
     add_section("Recommendations", recommendations or ["No recommendations returned."])
     add_section("Role suggestions", [
-        f"{item.get('role')} - {item.get('match_score')}% overlap. {item.get('reason')} Missing signals: {', '.join(item.get('missing_skills', [])) or 'None'}"
+        f"{item.get('role')}. Role-related skills detected in the resume: {', '.join(item.get('matched_skills', [])) or 'none'}. Other possible skills not detected (not all required): {', '.join(item.get('missing_skills', [])) or 'None'}"
         for item in analysis.get("role_recommendations", [])
     ] or ["Not enough detected skill evidence for role suggestions."])
+    role_fit = analysis.get("role_analysis")
+    if role_fit:
+        role_lines = [
+            f"Selected role: {role_fit.get('role')}",
+            f"Requirement groups with evidence: {role_fit.get('required_groups_met')} of {role_fit.get('total_required_groups')}",
+            f"Relevant project lines: {role_fit.get('related_project_count')} of {role_fit.get('project_count')}",
+            *[
+                f"{group.get('group')} - {group.get('status')}: matched {', '.join(group.get('matched_skills', [])) or 'none'}; alternatives: {', '.join(group.get('skills', []))}"
+                for group in role_fit.get("skill_groups", [])
+            ],
+            *[
+                f"Optional alternatives - {group.get('label')}: {', '.join(group.get('skills', []))}"
+                for group in role_fit.get("optional_alternatives", [])
+            ],
+            *[
+                f"Related project - {project.get('evidence')} (skills: {', '.join(project.get('matched_skills', []))})"
+                for project in role_fit.get("related_projects", [])
+            ],
+        ]
+        add_section("Selected role fit", role_lines)
     add_section("Resume summary", [analysis.get("summary") or "No summary text was extracted."])
     add_text("This estimated analysis is heuristic, does not predict a proprietary ATS, and should not replace a human review.", size=8, color=(0.45, 0.45, 0.43), gap=4)
 

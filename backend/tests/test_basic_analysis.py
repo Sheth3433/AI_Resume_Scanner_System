@@ -20,6 +20,8 @@ from app.services.resume_parser import build_resume_summary
 from app.services.resume_improvement import improve_resume_text
 from app.services.report_generator import generate_analysis_report
 from app.services.role_recommender import recommend_roles
+from app.services.role_profiles import analyze_role_fit
+from app.services.role_profiles import list_role_profiles
 from fastapi import HTTPException
 
 
@@ -53,6 +55,8 @@ def test_skill_extraction_normalizes_aliases_and_ignores_negated_mentions():
     assert "Docker" not in by_name
     assert "Power BI" in by_name["Power BI"]["evidence"]
     assert by_name["Python"]["source_section"] == "skills"
+    assert not any(item["skill"] == "Go" for item in extract_skills("I go to work with Python."))
+    assert any(item["skill"] == "Go" for item in extract_skills("SKILLS\nPython, Go"))
 
 
 def test_job_skill_priority_carries_across_requirement_bullets():
@@ -98,9 +102,10 @@ def test_role_recommendations_need_multiple_detected_skills_and_explain_overlap(
     assert recommend_roles(["Python"]) == []
     roles = recommend_roles(["Python", "SQL", "Pandas", "Power BI"])
     analyst = next(role for role in roles if role["role"] == "Data Analyst")
-    assert analyst["match_score"] > 0
+    assert "match_score" not in analyst
     assert {"Python", "SQL", "Pandas", "Power BI"}.issubset(analyst["matched_skills"])
-    assert "4 of" in analyst["reason"]
+    assert "Power BI" in analyst["reason"]
+    assert " of " not in analyst["reason"]
 
 
 def test_settings_status_never_returns_an_api_key():
@@ -119,6 +124,8 @@ def test_similarity_and_scoring_are_numeric():
     assert 0 <= score <= 100
     assert compute_similarity("Python Python", "Python Docker") < 0.75
     assert compute_similarity("Python", "Docker") == 0
+    assert calculate_compatibility(0.5, {"matched_skills": ["Python", "Docker"], "missing_skills": ["AWS", "Go"]}) == 50.0
+    assert calculate_compatibility(-0.5, {"matched_skills": ["Python"], "missing_skills": []}) == 40.0
 
 
 def test_ats_estimate_explains_checks_and_does_not_claim_layout_detection():
@@ -131,6 +138,132 @@ def test_ats_estimate_explains_checks_and_does_not_claim_layout_detection():
     assert any(check["name"] == "Job-specific skills" for check in ats["checks"])
     assert "Not assessed" in ats["formatting_assessment"]
     assert "proprietary" in ats["disclaimer"]
+
+
+def test_ats_score_uses_semantic_60_and_exact_skill_coverage_40(monkeypatch):
+    from app.services import resume_parser
+
+    monkeypatch.setattr(resume_parser, "compute_semantic_similarity", lambda *_: (0.5, "sentence-transformers"))
+    result = build_resume_summary(
+        "Alex Example\nSKILLS\nDocker",
+        "Required: Docker\nPreferred: AWS",
+    )
+    assert result["scores"]["skill_match"] == 80
+    assert result["scores"]["ats_compatibility"] == 62.0
+    assert result["ats_analysis"]["formula"] == "60% semantic similarity + 40% weighted exact skill coverage"
+
+    monkeypatch.setattr(resume_parser, "compute_semantic_similarity", lambda *_: (0.5, "test"))
+    unknown_terms = build_resume_summary("Alex Example", "Distributed systems specialist")
+    assert unknown_terms["job"]["skills"] == []
+    assert unknown_terms["scores"]["skill_match"] == 100
+    assert unknown_terms["scores"]["ats_compatibility"] == 70
+    assert "No skills from the current IT taxonomy" in next(
+        check["detail"] for check in unknown_terms["ats_analysis"]["checks"] if check["name"] == "Job-specific skills"
+    )
+
+
+def test_unknown_target_role_is_rejected():
+    try:
+        build_resume_summary("Python developer", target_role="Chief Wizard")
+    except ValueError as error:
+        assert "Unsupported IT target role" in str(error)
+    else:
+        raise AssertionError("Unknown target role was silently accepted")
+
+
+def test_role_profile_matches_alternative_languages_and_uses_project_evidence(monkeypatch):
+    from app.services import resume_parser
+
+    monkeypatch.setattr(resume_parser, "compute_semantic_similarity", lambda *_: (0.4, "test"))
+    result = build_resume_summary(
+        "Alex Example\nSKILLS\nPython, Java\nPROJECTS\nAPI service built with Python and FastAPI using PostgreSQL.",
+        target_role="Backend Developer",
+    )
+    role_fit = result["role_analysis"]
+    assert role_fit["role"] == "Backend Developer"
+    language_group = next(group for group in role_fit["skill_groups"] if group["group"] == "Programming language")
+    assert language_group["status"] == "met"
+    assert "Python" in language_group["matched_skills"]
+    assert any("Node.js" in item["skills"] and "Go" in item["skills"] and "Rust" in item["skills"] for item in role_fit["optional_alternatives"])
+    api_group = next(group for group in role_fit["skill_groups"] if group["group"] == "API development")
+    assert api_group["status"] == "met"
+    assert role_fit["required_groups_met"] == 4
+    assert role_fit["total_required_groups"] == 4
+    assert role_fit["related_project_count"] == 1
+    assert role_fit["project_count"] == 1
+    assert any("FastAPI" in project["matched_skills"] for project in result["resume"]["projects"])
+
+
+def test_job_description_and_selected_role_both_contribute_to_skill_match(monkeypatch):
+    from app.services import resume_parser
+
+    monkeypatch.setattr(resume_parser, "compute_semantic_similarity", lambda *_: (0.5, "test"))
+    result = build_resume_summary(
+        "Alex Example\nSKILLS\nPython, FastAPI, APIs\nPROJECTS\nService API: Built with Python and FastAPI.",
+        "Required: Docker",
+        target_role="Backend Developer",
+    )
+    assert result["skill_match_basis"]["job_description"] == 0
+    assert result["skill_match_basis"]["role_profile"] == 75
+    assert result["skill_match_basis"]["combined_weights"] == {"job_description": 60, "role_profile": 40}
+    assert result["scores"]["skill_match"] == 30
+    assert result["scores"]["ats_compatibility"] == 42.0
+
+
+def test_resume_analysis_exposes_conservative_structured_project_and_experience_fields(monkeypatch):
+    from app.services import resume_parser
+
+    monkeypatch.setattr(resume_parser, "compute_semantic_similarity", lambda *_: (0.0, "not_available"))
+    result = build_resume_summary(
+        "Alex Example\nEXPERIENCE\nBackend Engineer at Acme | 2022 - 2024\nBuilt a Python API.\nPROJECTS\nResume Analyzer: Built with FastAPI and SQL.",
+    )
+    experience = result["resume"]["experience"][0]
+    assert experience["role"] == "Backend Engineer"
+    assert experience["company"] == "Acme"
+    assert experience["start_date"] == "2022"
+    project = result["resume"]["projects"][0]
+    assert project["project_name"] == "Resume Analyzer"
+    assert "FastAPI" in project["technologies"]
+
+    education = build_resume_summary(
+        "Alex Example\nEDUCATION\nBachelor of Technology in Computer Science | Example University | 2021 - 2025 | CGPA: 8.4",
+    )["resume"]["education"][0]
+    assert education["degree"] == "Bachelor of Technology"
+    assert education["field"] == "Computer Science"
+    assert education["institution"] == "Example University"
+    assert education["graduation_year"] == "2025"
+
+
+def test_scanned_pdf_uses_ocr_fallback_when_available(tmp_path, monkeypatch):
+    from app.services import document_parser
+
+    monkeypatch.setattr(document_parser, "extract_pdf_text", lambda _path: "")
+    monkeypatch.setattr(document_parser, "extract_scanned_pdf_text", lambda _path: "SKILLS\nPython")
+    result = document_parser.parse_resume_content("scan.pdf", b"%PDF-1.7 test")
+    assert "Python" in result
+
+
+def test_ocr_unavailable_returns_setup_guidance(monkeypatch):
+    import pytesseract
+    from app.services import document_parser
+
+    def missing_tesseract():
+        raise pytesseract.TesseractNotFoundError()
+
+    monkeypatch.setattr(document_parser, "TESSERACT_CMD", "")
+    monkeypatch.setattr(pytesseract, "get_tesseract_version", missing_tesseract)
+    try:
+        document_parser.extract_scanned_pdf_text("unused.pdf")
+    except ValueError as error:
+        assert "Install Tesseract OCR" in str(error)
+        assert "TESSERACT_CMD" in str(error)
+    else:
+        raise AssertionError("Missing Tesseract executable was not reported")
+
+
+def test_role_catalog_covers_common_it_job_families():
+    role_names = {item["role"] for item in list_role_profiles()}
+    assert {"Backend Developer", "Frontend Developer", "DevOps Engineer", "Cybersecurity Analyst", "QA Automation Engineer"}.issubset(role_names)
 
 
 def test_resume_upload_validation_checks_extension_and_file_signature():

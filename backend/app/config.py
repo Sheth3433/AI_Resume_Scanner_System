@@ -12,6 +12,9 @@ load_dotenv(BASE_DIR / "backend" / ".env")
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./resume_scanner.db")
 MODEL_NAME = os.getenv("MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2")
 MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE", 10 * 1024 * 1024))
+TESSERACT_CMD = os.getenv("TESSERACT_CMD", "").strip()
+OCR_LANGUAGE = os.getenv("OCR_LANGUAGE", "eng").strip() or "eng"
+OCR_MAX_PAGES = max(1, int(os.getenv("OCR_MAX_PAGES", "20")))
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", BASE_DIR / "tmp" / "uploads"))
 if not UPLOAD_DIR.is_absolute():
 	UPLOAD_DIR = BASE_DIR / UPLOAD_DIR

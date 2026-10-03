@@ -8,7 +8,7 @@ const windows = process.platform === 'win32'
 const environmentPython = join(root, '.venv', windows ? 'Scripts' : 'bin', windows ? 'python.exe' : 'python')
 const command = existsSync(environmentPython) ? environmentPython : windows ? 'py' : 'python3'
 const args = [
-  '-m', 'uvicorn', 'app.main:app', '--reload', '--app-dir', 'backend',
+  '-m', 'uvicorn', 'app.main:app', '--app-dir', 'backend',
   '--host', '127.0.0.1', '--port', '8000',
 ]
 

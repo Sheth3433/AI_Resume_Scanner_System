@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel, Field
-from app.config import AI_API_KEY, AI_MODEL, AI_PROVIDER, MAX_FILE_SIZE, MODEL_NAME, UPLOAD_DIR
+from app.config import AI_API_KEY, AI_MODEL, AI_PROVIDER, MAX_FILE_SIZE, MODEL_NAME, OCR_LANGUAGE, OCR_MAX_PAGES, TESSERACT_CMD, UPLOAD_DIR
 from app.models.analysis import AnalysisRecord
 from app.models.database import SessionLocal
 from app.models.user import UserRecord
@@ -55,12 +56,13 @@ async def upload_resume(file: UploadFile = File(...), current_user: UserRecord =
 async def analyze_resume(
     file: UploadFile = File(...),
     job_description: str | None = Form(default=None),
+    target_role: str | None = Form(default=None),
     current_user: UserRecord = Depends(get_current_user),
 ):
     try:
         content = await file.read(MAX_FILE_SIZE + 1)
         text = parse_resume_content(file.filename or "resume", content)
-        result = build_resume_summary(text, job_description or "")
+        result = build_resume_summary(text, job_description or "", target_role=target_role or None)
         with SessionLocal() as db:
             record = AnalysisRecord(
                 owner_user_id=current_user.id,
@@ -122,6 +124,12 @@ def get_settings_status(current_user: UserRecord = Depends(get_current_user)):
             "model": AI_MODEL if provider == "openai" else (AI_MODEL if AI_MODEL.startswith("gemini-") else "gemini-2.0-flash") if provider == "gemini" else None,
         },
         "semantic_model": MODEL_NAME,
+        "ocr": {
+            "configured": bool(shutil.which(TESSERACT_CMD or "tesseract")),
+            "language": OCR_LANGUAGE,
+            "max_pages": OCR_MAX_PAGES,
+            "note": "Scanned PDFs use Tesseract OCR when the executable is installed; otherwise a setup error is returned.",
+        },
         "history_storage": "SQLite; analysis records are stored until deleted.",
         "uploaded_files": "Files saved by /resume/upload are separate and are not removed by clearing analysis history.",
     }

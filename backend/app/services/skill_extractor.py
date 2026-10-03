@@ -4,6 +4,8 @@ from app.services.section_detector import detect_sections
 
 SKILL_LIBRARY = {
     "python": {"skill": "Python", "category": "Programming Language"},
+    "go programming": {"skill": "Go", "category": "Programming Language"},
+    "go language": {"skill": "Go", "category": "Programming Language"},
     "c++": {"skill": "C++", "category": "Programming Language"},
     "c#": {"skill": "C#", "category": "Programming Language"},
     "sql": {"skill": "SQL", "category": "Database"},
@@ -27,6 +29,7 @@ SKILL_LIBRARY = {
     "php": {"skill": "PHP", "category": "Programming Language"},
     "ruby": {"skill": "Ruby", "category": "Programming Language"},
     "golang": {"skill": "Go", "category": "Programming Language"},
+    "go": {"skill": "Go", "category": "Programming Language"},
     "react": {"skill": "React", "category": "Framework"},
     "reactjs": {"skill": "React", "category": "Framework"},
     "node": {"skill": "Node.js", "category": "Framework"},
@@ -79,10 +82,41 @@ SKILL_LIBRARY = {
     "tailwind css": {"skill": "Tailwind CSS", "category": "Framework"},
     "bootstrap": {"skill": "Bootstrap", "category": "Framework"},
     "rest": {"skill": "REST APIs", "category": "Web Development"},
+    "rest api": {"skill": "REST APIs", "category": "Web Development"},
+    "rest apis": {"skill": "REST APIs", "category": "Web Development"},
+    "graphql": {"skill": "GraphQL", "category": "Web Development"},
+    "grpc": {"skill": "gRPC", "category": "Web Development"},
     "api": {"skill": "APIs", "category": "Web Development"},
     "linux": {"skill": "Linux", "category": "DevOps"},
     "kubernetes": {"skill": "Kubernetes", "category": "DevOps"},
     "terraform": {"skill": "Terraform", "category": "DevOps"},
+    "bash": {"skill": "Bash", "category": "DevOps"},
+    "powershell": {"skill": "PowerShell", "category": "DevOps"},
+    "ci cd": {"skill": "CI/CD", "category": "DevOps"},
+    "maven": {"skill": "Maven", "category": "Tool"},
+    "gradle": {"skill": "Gradle", "category": "Tool"},
+    "junit": {"skill": "JUnit", "category": "Testing"},
+    "pytest": {"skill": "pytest", "category": "Testing"},
+    "selenium": {"skill": "Selenium", "category": "Testing"},
+    "playwright": {"skill": "Playwright", "category": "Testing"},
+    "cypress": {"skill": "Cypress", "category": "Testing"},
+    "postman": {"skill": "Postman", "category": "Testing"},
+    "excel": {"skill": "Excel", "category": "Data Science"},
+    "r programming": {"skill": "R", "category": "Programming Language"},
+    "wireshark": {"skill": "Wireshark", "category": "Cybersecurity"},
+    "owasp": {"skill": "OWASP", "category": "Cybersecurity"},
+    "burp suite": {"skill": "Burp Suite", "category": "Cybersecurity"},
+    "nmap": {"skill": "Nmap", "category": "Cybersecurity"},
+    "metasploit": {"skill": "Metasploit", "category": "Cybersecurity"},
+    "siem": {"skill": "SIEM", "category": "Cybersecurity"},
+    "incident response": {"skill": "Incident Response", "category": "Cybersecurity"},
+    "risk assessment": {"skill": "Risk Assessment", "category": "Cybersecurity"},
+    "cloudformation": {"skill": "CloudFormation", "category": "Cloud"},
+    "microservices": {"skill": "Microservices", "category": "Architecture"},
+    "kafka": {"skill": "Kafka", "category": "Data Engineering"},
+    "rabbitmq": {"skill": "RabbitMQ", "category": "Data Engineering"},
+    "networking": {"skill": "Networking", "category": "Networking"},
+    "presentation": {"skill": "Presentation", "category": "Soft Skill"},
     "communication": {"skill": "Communication", "category": "Soft Skill"},
     "leadership": {"skill": "Leadership", "category": "Soft Skill"},
     "teamwork": {"skill": "Teamwork", "category": "Soft Skill"},
@@ -129,6 +163,12 @@ def extract_skills(text: str):
         for match in _skill_pattern(alias).finditer(text):
             line = _line_at(text, match.start()).strip()
             line_position = match.start() - (text.rfind("\n", 0, match.start()) + 1)
+            if alias == "go" and not (
+                section_by_line.get(line) == "skills"
+                or re.search(r"\b(?:golang|go\s+(?:programming|language))\b", line, re.I)
+                or re.search(r"(?:^|[,/|])\s*go\s*(?:[,/|]|$)", line, re.I)
+            ):
+                continue
             if _is_negated(line, line_position):
                 continue
             section = section_by_line.get(line)

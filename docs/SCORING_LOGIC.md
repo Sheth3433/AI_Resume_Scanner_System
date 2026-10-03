@@ -1,32 +1,42 @@
 # Scoring Logic
 
-## Job compatibility score
+## Job-targeted ATS estimate
 
-When a job description is provided, the score is a deterministic weighted average:
+When a job description or IT target role is supplied, `scores.ats_compatibility` uses the requested hybrid formula:
 
-| Component | Weight | Calculation |
+```text
+ATS score = 60% x semantic similarity + 40% x weighted exact skill coverage
+```
+
+The cosine semantic value is clamped to `[0, 1]`, converted to percent, and weighted at 60%. The skill component is exact canonical skill evidence weighted by JD priority: required = 2, unqualified mention = 1, preferred = 0.5. With a selected IT role and no pasted JD, the skill component is the share of role requirement groups met; any one listed alternative meets that group. If both a JD and role are supplied, skill coverage is 60% JD coverage plus 40% role-group coverage. The response exposes those source contributions in `skill_match_basis` and the ATS components in `ats_analysis`.
+
+With no job description or target role, `ats_compatibility` falls back to document readiness. Its value is explicitly labeled in `ats_analysis.score_basis`; document readiness does not pretend to be a job match.
+
+## Document readiness
+
+`ats_analysis.document_readiness_score` checks contact data, standard section headings, a Skills heading, job/role skill evidence, and a small list of generic phrases. Each check includes evidence and status. Since this stage sees extracted text only, it cannot reliably measure columns, tables, images, font/formatting, or layout. Neither ATS score predicts a proprietary ATS result.
+
+## Overall job compatibility
+
+The existing `scores.compatibility` remains an explainable six-part match when a target is supplied:
+
+| Component | Weight | Current measurement |
 | --- | ---: | --- |
-| Semantic similarity | 30% | Sentence-transformer embeddings and normalized cosine similarity; token cosine is an explicitly named fallback. |
-| Skills | 30% | Weighted coverage: required skill = 2, ordinary mention = 1, preferred skill = 0.5. Nearby wording determines priority heuristically. |
-| Keywords | 15% | Token-count cosine similarity over the complete union vocabulary. |
-| Experience | 10% | 100 if an experience section has text; otherwise 0. |
-| Projects | 10% | 100 if a projects section has text; otherwise 0. |
-| Education | 5% | 100 if an education section has text; otherwise 0. |
+| Semantic | 30% | Sentence-transformer cosine or labeled token-overlap fallback. |
+| Skills | 30% | Required/preferred weighted exact coverage, or selected-role groups when no JD is pasted. |
+| Keywords | 15% | Full-vocabulary token-count cosine. |
+| Experience | 10% | Presence of a detected Experience section. |
+| Projects | 10% | Presence of a detected Projects section. |
+| Education | 5% | Presence of a detected Education section. |
 
-The response includes each component score and weight in `match_breakdown`. Section-presence dimensions do not evaluate relevance, seniority, duration, or quality. Skills are limited to the current skill taxonomy; aliases are canonicalized, explicit negation around a mention is filtered, and every retained match includes a source line and detected section. Required/preferred classification is a nearby-phrase heuristic, not a full requirements parser.
+The section-presence dimensions do not evaluate relevance, duration, or quality. When no target is supplied, compatibility remains the existing resume-skill-count heuristic.
 
-Without a job description, compatibility is `min(100, extracted_resume_skill_count * 10)`; this is a completeness-style heuristic, not a job match.
+## IT role profiles
 
-## Estimated ATS compatibility
+Supported roles are returned by `GET /api/roles`. Each profile has weighted requirement groups with alternative skills (for example, a programming-language group); it does not require every language/framework in a group. The role fit score uses 80% group coverage and up to 20% project evidence when a Projects section exists. Optional alternatives are shown separately from unmet required groups.
 
-The separate `ats_analysis` contains a deterministic estimate based on contact detection, standard section headings, a skills heading, generic weak phrases, and job-skill coverage when job skills are detected. It includes per-check evidence and warnings. The denominator is normalized when no job-skill check is available.
-
-Because the parser analyzes extracted text, it does not currently detect columns, tables, image content, font/formatting problems, or layout reliably. This estimate does not predict the behavior of any proprietary applicant tracking system.
+The role taxonomy and JD skill extraction are finite, evidence-based dictionaries, not live job-posting data. Matching requires text evidence and can miss unknown names or phrases; it does not infer proficiency from similarity alone.
 
 ## Similarity and fallback
 
-The sentence-transformer is lazily loaded and cached for the process. If model import, download, loading, or inference fails, the app calculates token cosine similarity and returns `semantic_match_source: "token-overlap fallback"`. This fallback is not represented as semantic model output. Keyword cosine uses all tokens from both sides; non-overlapping terms contribute to vector magnitudes.
-
-## Recommendations
-
-Recommendations are rule-based and reference detected missing job skills or absent sections/contact details. They do not represent a hiring decision or guarantee an interview outcome.
+The sentence-transformer is lazily loaded and cached. If loading/inference fails, token cosine is returned and named by `semantic_match_source`. Token keyword cosine uses the complete union vocabulary, so non-overlapping terms contribute to the vector magnitudes.
